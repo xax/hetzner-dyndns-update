@@ -1,6 +1,6 @@
 # Hetzner ® DNS Dynamic Update Script
 
-![Version: 1.0.0](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Version: 1.1.0](https://img.shields.io/badge/version-1.1.0-blue.svg)
 ![License: EUPL-1.2](https://img.shields.io/badge/license-EUPL%201.2-272398.svg?logo=europeanunion)
 
 A bash script to update A, AAAA, and CNAME DNS resource records for specified domains using the Hetzner® Cloud API.
@@ -101,4 +101,5 @@ This project is licensed under the *European Union Public Licence* version 1.2. 
 
 ## Version
 
-1.0.0 - Initial release supporting A, AAAA, and CNAME DNS record updates via Hetzner Cloud API
+1.0.0 - Initial release supporting A, AAAA, and CNAME DNS record updates via Hetzner Cloud API.
+1.1.0 - Remove entire A/AAAA resource records; bug fixes (ttl should be numerical).
