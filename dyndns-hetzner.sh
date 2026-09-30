@@ -118,7 +118,7 @@ update_domain() {
             delete_rrset "$ZONE_ID" "$SUBDOMAIN" AAAA
             # delete_record "$ZONE_ID" "$SUBDOMAIN" "$RECORD_ID_AAAA" "$EXISTING_IPV6"
             echo "[$DOMAIN] ➡️ Setting new AAAA record to $CURRENT_IPV6"
-            curl -s -X POST "$HETZNER_API_URL/zones/$ZONE_ID/rrsets/$SUBDOMAIN/AAAA/actions/update_records" \
+            curl -s -X POST "$HETZNER_API_URL/zones/$ZONE_ID/rrsets/$SUBDOMAIN/AAAA/actions/add_records" \
                 -H "Authorization: Bearer $HETZNER_API_KEY" \
                 -H "Content-Type: application/json" \
                 -d "{
