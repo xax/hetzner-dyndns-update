@@ -470,8 +470,8 @@ def generate_cert(*, basename: Path = Path("dyndns_hhs"), password: str | None =
 
 
 def main():
-    defaultPassword = os.environ.get("DYNDNY_HHS_PASSWORD", None)
-    defaultToken = os.environ.get("DYNDNY_HHS_TOKEN", "keykey123")
+    defaultPassword = os.environ.get("DYNDYS_HHS_PASSWORD", None)
+    defaultToken = os.environ.get("DYNDNS_HHS_TOKEN", "keykey123")
     defaultAPIKey = os.environ.get("DYNDNS_HHS_API_KEY", None)
 
     parser = argparse.ArgumentParser(
@@ -526,7 +526,7 @@ Endpoints:
         "--token",
         type=str,
         default=defaultToken,
-        help="access token used for authorization (also from DYNDNY_HHS_TOKEN environment variable) [%(default)s]",
+        help="access token used for authorization (also from DYNDNS_HHS_TOKEN environment variable) [%(default)s]",
     )
     pg_server.add_argument(
         "-c", "--certfile", type=Path, default=None, help="to use TLS: path to certificate or combined key/certificate"
@@ -558,7 +558,7 @@ Endpoints:
         "--password",
         type=str,
         default=defaultPassword,
-        help="Optional password to keyfile (also from DYNDNY_HHS_PASSWORD environment variable) [%(default)s]",
+        help="Optional password to keyfile (also from DYNDNS_HHS_PASSWORD environment variable) [%(default)s]",
     )
     args = parser.parse_args()
 
@@ -568,7 +568,7 @@ Endpoints:
         return
 
     if args.api_key is None:
-        log.error("An API key is required. Use option -A or environment variable DYNDNY_HHS_API_KEY to specify it.")
+        log.error("An API key is required. Use option -A or environment variable DYNDNS_HHS_API_KEY to specify it.")
         return 1
 
     if len(args.hosts) == 0:
