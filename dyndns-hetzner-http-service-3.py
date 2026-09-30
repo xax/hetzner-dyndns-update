@@ -55,6 +55,28 @@ class IPState(ABC):
         self.snapshot_v6(default, timeout=timeout)
 
 
+class IPStateStatic(IPState):
+
+    def __init__(self, /, ip_v4: str | None, ip_v6: str | None, **kwargs):
+        super().__init_subclass__(**kwargs)
+        self._ip_v4 = ip_v4
+        self._ip_v6 = ip_v6
+
+    @property
+    def ip_v4(self) -> str | None:
+        return self._ip_v4
+
+    @property
+    def ip_v6(self) -> str | None:
+        return self._ip_v6
+
+    def snapshot_v4(self, default: str | EllipsisType | None, *, timeout: int = 6) -> None:
+        pass # leave unchanged
+
+    def snapshot_v6(self, default: str | EllipsisType | None, *, timeout: int = 6) -> None:
+        pass # leave unchanged
+
+
 class IPStateHttpGet(IPState):
     target_v4: str = ""
     target_v6: str = ""
@@ -176,16 +198,18 @@ class DynDNSUpdaterHCloud:
         current_v4 = self._get_1st_value_by_rrname_rrtype(rrsets, rrname, "A")
         current_v6 = self._get_1st_value_by_rrname_rrtype(rrsets, rrname, "AAAA")
 
-        if self.ipState.ip_v4 != current_v4:
+        if self.ipState.ip_v4 is not None and self.ipState.ip_v4 != current_v4:
             log.info(f"[{domain}] ➡️ Setting new A record to {self.ipState.ip_v4}")
             self._rrsets_remove_record(zone_id, rrname, "A", current_v4)
+            #self._rrsets_remove(zone_id, rrname, "A")
             self._rrsets_add_record(zone_id, rrname, "A", self.ipState.ip_v4)
         else:
             log.info(f"[{domain}] ✅ A record already up to date ({self.ipState.ip_v4})")
 
-        if self.ipState.ip_v4 != current_v4:
+        if self.ipState.ip_v6 is not None and self.ipState.ip_v6 != current_v6:
             log.info(f"[{domain}] ➡️ Setting new AAAA record to {self.ipState.ip_v6}")
             self._rrsets_remove_record(zone_id, rrname, "AAAA", current_v6)
+            #self._rrsets_remove(zone_id, rrname, "AAAA")
             self._rrsets_add_record(zone_id, rrname, "AAAA", self.ipState.ip_v6)
         else:
             log.info(f"[{domain}] ✅ AAAA record already up to date ({self.ipState.ip_v6})")
@@ -194,14 +218,19 @@ class DynDNSUpdaterHCloud:
 
 
     def _api_call(self, api_path: str, method: str | None = None, data = None):
+        log.debug(f"Bearer {self.config.get("api_key", "none")}")
+        log.debug(f"{data=}")
+        headers = {
+                "Authorization": f"Bearer {self.config.get("api_key", "none")}",
+        }
         req = Request(
             url=__class__.API_URL + api_path,
             data=data,
-            headers={
-                "Authorization": f"Bearer {self.config.get("api_key", "none")}",
-            },
+            headers=headers,
             method=method,
         )
+        if req.get_method() == "POST":
+            req.add_header("Content-Type", "application/json")
         res = None
         try:
             res = urlopen(req, timeout=__class__.TIMEOUT)
@@ -210,13 +239,13 @@ class DynDNSUpdaterHCloud:
             if self.raise_exceptions:
                 raise
         if res is not None and res.status == HTTPStatus.OK:
-            return res.read()
+            return res.read() or ""
         else:
             return None
 
     def _get_zone_id(self, main_domain: str) -> str | None:
         if (res := self._api_call("/zones")) is None:
-            log.error(f"Failed API call.")
+            log.error(f"Failed API call _get_zone_id.")
             return None
         data = json.loads(res)
         for zone in data["zones"]:
@@ -228,7 +257,7 @@ class DynDNSUpdaterHCloud:
 
     def _zone_list_rrsets(self, zone_id) -> list[dict] | None:
         if (res := self._api_call(f"/zones/{zone_id}/rrsets")) is None:
-            log.error(f"Failed API call.")
+            log.error(f"Failed API call _zone_list_rrsets.")
             return None
         data = json.loads(res)
         return data.get("rrsets", None)
@@ -249,19 +278,29 @@ class DynDNSUpdaterHCloud:
             json.dumps({"ttl": self.config.get("ttl", 120), "records": [{"value": value}]}).encode()
         )
         if res is None:
-            log.error(f"Failed API call.")
+            log.error(f"Failed API call _rrsets_add_record.")
             return None
         return True
 
 
     def _rrsets_remove_record(self, zone_id, rr_name, rr_type, value):
         res = self._api_call(
-            f"/zones/{zone_id}/rrsets/{rr_name}/{rr_type}/actions/update_records",
+            f"/zones/{zone_id}/rrsets/{rr_name}/{rr_type}/actions/remove_records",
             "POST",
             json.dumps({"records": [{"value": value}]}).encode()
         )
         if res is None:
-            log.error(f"Failed API call.")
+            log.error(f"Failed API call _rrsets_remove_record.")
+            return None
+        return True
+
+    def _rrsets_remove(self, zone_id, rr_name, rr_type):
+        res = self._api_call(
+            f"/zones/{zone_id}/rrsets/{rr_name}/{rr_type}",
+            "DELETE",
+        )
+        if res is None:
+            log.error(f"Failed API call _rrsets_remove.")
             return None
         return True
 
@@ -299,7 +338,7 @@ class DynDNSHandler(BaseHTTPRequestHandler):
         if len(query) > 0:
             params = query.split("&")
             vars = {k: v for (k, v) in [_minsplit(param, "=", 1) for param in params]}
-            if "token" in vars.keys() and unquote_plus(vars["token"]) == self.token:
+            if "token" in vars and unquote_plus(vars["token"]) == self.token:
                 self._handle_request(unquote_plus(path), vars)
                 return
 
@@ -318,7 +357,10 @@ class DynDNSHandler(BaseHTTPRequestHandler):
             self.end_headers()
         elif path == f"/{self.routeUpdate}":
             ## process DNS update request
-            ipState = IPStateHaz(False, False)
+            if "ipv4" in vars or "ipv6" in vars:
+                ipState = IPStateStatic(vars.get("ipv4"), vars.get("ipv6"))
+            else:
+                ipState = IPStateHaz(False, False)
             try:
                 ipState.snapshot(...)
             except (URLError, OSError) as e:
@@ -432,7 +474,25 @@ def main():
     defaultToken = os.environ.get("DYNDNY_HHS_TOKEN", "keykey123")
     defaultAPIKey = os.environ.get("DYNDNS_HHS_API_KEY", None)
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="""\
+Enrolls a server listening for HTTP-GET requests, upon which it uses the Hetzner-Cloud-API
+to update DNS A/AAAA records for given entries.
+
+Endpoints:
+    /hc
+        Healthcheck: expect an HTTP 200 OK reply if service running
+    /update?token=‹authtoken›[&ipv4=‹ipv4›][&ipv6=‹ipv6›]
+        Update DNS records for entries specified on service's start.
+            ‹authtoken› - authentification token as given on service's launch
+            ‹ipv4› - new IPv4 address if known;
+                     otherwise service will use an external service to try to determine address
+            ‹ipv6› - new IPv6 address if known;
+                     otherwise service will use an external service to try to determine address
+""",
+        epilog=f"Version {__version__}. {__copyright__}"
+    )
     pg_api = parser.add_argument_group(title="API")
     pg_api.add_argument(
         "-A",
