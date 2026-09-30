@@ -20,7 +20,7 @@ from urllib.request import Request, urlopen
 
 # SPDX-FileCopyrightText: Copyright (C) Oct 2026 XA. All rights reserved.
 # SPDX-License-Identifier: EUPL-1.2
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 __copyright__ = "Copyright (C) by XA, X 2026. All rights reserved. Licensed under EUPL-1.2."
 
 log = logging.getLogger(__name__)
@@ -602,5 +602,5 @@ Endpoints:
     return 0
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
+    # logging.basicConfig(level=logging.DEBUG)
     exit(main())
