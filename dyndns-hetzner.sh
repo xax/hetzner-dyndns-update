@@ -61,7 +61,9 @@ delete_record() {
             -H "Authorization: Bearer $HETZNER_API_KEY" \
             -d "{
                 \"records\": [
-                    \"value\": \"$RECORD_VALUE\"
+                    {
+                        \"value\": \"$RECORD_VALUE\"
+                    }
                 ]
             }" > /dev/null
     fi
