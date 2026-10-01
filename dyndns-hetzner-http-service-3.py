@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
+import sys
+
 from abc import ABC, abstractmethod
 import argparse
 import functools
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, HTTPSServer, HTTPServer
+import http.server
 import json
 import logging
 import os
@@ -58,7 +60,6 @@ class IPState(ABC):
 class IPStateStatic(IPState):
 
     def __init__(self, /, ip_v4: str | None, ip_v6: str | None, **kwargs):
-        super().__init_subclass__(**kwargs)
         self._ip_v4 = ip_v4
         self._ip_v6 = ip_v6
 
@@ -306,7 +307,7 @@ class DynDNSUpdaterHCloud:
 
 
 
-class DynDNSHandler(BaseHTTPRequestHandler):
+class DynDNSHandler(http.server.BaseHTTPRequestHandler):
 
     def __init__(
         self,
@@ -405,8 +406,8 @@ def run(
     config: dict = {},
 ):
     server_address = (server_bind, server_port)
-    if certfile is not None:
-        httpd = HTTPSServer(
+    if sys.version_info >= (3, 14) and certfile is not None:
+        httpd = http.server.HTTPSServer(
             server_address,
             functools.partial(handler_class, token=token, config=config),
             certfile=certfile,
@@ -414,7 +415,7 @@ def run(
             password=password,
         )
     else:
-        httpd = HTTPServer(
+        httpd = http.server.HTTPServer(
             server_address, functools.partial(handler_class, token=token, config=config)
         )
 
@@ -515,6 +516,7 @@ Endpoints:
         metavar="HOST@ZONE",
         nargs="*",
         action="extend",
+        default=[],
         help="DNS resource record sets names to change A/AAAA records of in given zone (e.g. \"@domain.tld\" for zone origin, \"www@domain.tld\" for www subdomain)",
     )
 
@@ -573,6 +575,10 @@ Endpoints:
 
     if len(args.hosts) == 0:
         log.error("At least on resource record name and a zone has to be specified (try \"-H @yourdomain.tld\").")
+        return 1
+
+    if sys.version_info <= (3, 14) and (args.certfile is not None or args.keyfile is not None):
+        log.error("HTTPS server not supported with Python 3.13 or lower.")
         return 1
 
     ## sanitize additional urls
