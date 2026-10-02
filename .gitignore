@@ -1,4 +1,5 @@
 *.conf
+*.service
 *.cer*
 *.key
 *.pem
