@@ -1,3 +1,29 @@
+## # Install service script:
+## sudo install -m 0754 -D -t /opt/hetzner-dyndns-update dyndns-hetzner-http-service.py
+##
+## # Copy modified service file to systemd directory:
+## sudo cp dyndns-hetzner-http-service.service /etc/systemd/system/
+##
+## # Reload systemd to recognize the new service:
+## sudo systemctl daemon-reload
+##
+## # Enable the service to start on boot and actually start it:
+## sudo systemctl enable --now dyndns-hetzner-http-service
+##
+## # Check status
+## sudo systemctl status dyndns-hetzner-http-service
+
+
+- Copy modified service file to systemd directory: \
+  `sudo cp dyndns-hetzner-http-service.service /etc/systemd/system/`
+- Reload systemd to recognize the new service: \
+  `sudo systemctl daemon-reload`
+- Enable the service to start on boot and actually start it: \
+  `sudo systemctl enable --now dyndns-hetzner-http-service`
+- Check status
+  `sudo systemctl status dyndns-hetzner-http-service`
+
+
 [Unit]
 Description=Hetzner DynDNS HTTP Service
 After=network.target
