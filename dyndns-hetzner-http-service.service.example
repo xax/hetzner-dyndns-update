@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/hetzner-dyndns-update-bash
-ExecStart=/usr/bin/python3 /opt/hetzner-dyndns-update-bash/dyndns-hetzner-http-service-3.py --ttl 60 -H @mydomain.tld www@mydomain.tld
+WorkingDirectory=/opt/hetzner-dyndns-update
+ExecStart=/usr/bin/python3 /opt/hetzner-dyndns-update/dyndns-hetzner-http-service.py --ttl 60 -H @mydomain.tld www@mydomain.tld
 Restart=on-failure
 RestartSec=5
 Environment=DYNDNS_HHS_TOKEN=s73kjbsesf63vdsr3b

@@ -66,6 +66,8 @@ Edit `dyndns-hetzner-http-service.service` or use appropriate environment variab
 
 ## Usage
 
+- Install service script `dyndns-hetzner-http-service.py` into `/opt/hetzner-dyndns-update/`: \
+  `sudo install -m 0754 -D -t /opt/hetzner-dyndns-update dyndns-hetzner-http-service.py`
 - Copy modified service file to systemd directory: \
   `sudo cp dyndns-hetzner-http-service.service /etc/systemd/system/`
 - Reload systemd to recognize the new service: \
