@@ -11,6 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from pprint import pformat as pretty
 import re
 from socketserver import BaseServer
 import subprocess
@@ -22,7 +23,7 @@ from urllib.request import Request, urlopen
 
 # SPDX-FileCopyrightText: Copyright (C) Oct 2026 XA. All rights reserved.
 # SPDX-License-Identifier: EUPL-1.2
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 __copyright__ = "Copyright (C) by XA, X 2026. All rights reserved. Licensed under EUPL-1.2."
 
 log = logging.getLogger(__name__)
@@ -122,16 +123,17 @@ class IPStateHttpGet(IPState):
     def _do_request(cls, target, timeout: int, raise_exceptions: bool = False) -> str | None:
         res = None
         try:
-            res = urlopen(target, timeout=timeout)
+            with urlopen(target, timeout=timeout) as res:
+                if res.status == HTTPStatus.OK:
+                    ip = res.read()
+                    return ip.decode().strip()
+                else:
+                    log.debug(f"{__class__}:_do_request:urlopen:{res.status=}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}")
         except (OSError, URLError) as e:
             log.warning(f"Unable to reach endpoint \"{target}\" with this IP version: {e}")
             if raise_exceptions:
                 raise
-        if res is not None and res.status == HTTPStatus.OK:
-            ip = res.read()
-            return ip.decode().strip()
-        else:
-            return None
+        return None
 
 
 class IPStateHaz(IPStateHttpGet, target_v4="https://ipv4.icanhazip.com", target_v6="https://ipv6.icanhazip.com"):
@@ -147,11 +149,17 @@ def touch_url(url: str, ipState: IPState):
         url = url.replace("{ip}", ip).replace("{ipv4}", ip)
     if url.find("{ipv6}") >= 0 and (ip := ipState.ip_v6) is not None:
         url.replace("{ipv6}", ip)
-    log.debug(f"URL: {unquote_plus(url)}")
+    log.info(f'➡️ Pinging url: "{unquote_plus(url)}"')
     try:
-        urlopen(url, timeout=8)
+        with urlopen(url, timeout=8) as res:
+            if res.status == HTTPStatus.OK:
+                log.info(f'✅ Successfully touched additional url "{unquote_plus(url)}": {res.status}')
+            else:
+                log.warning(f'❌ Failed touching additional url "{unquote_plus(url)}": {res.status}')
+                log.debug(f"touch_url:urlopen:{res.status=}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}")
     except (URLError, ValueError) as e:
-        log.warning(f'Failed touching additional url "{url}": {e}')
+        log.warning(f'❌ Failed touching additional url "{unquote_plus(url)}": {e}')
+
 
 
 class DynDNSUpdaterHCloud:
@@ -184,7 +192,7 @@ class DynDNSUpdaterHCloud:
             domain = zone
         else:
             domain = f"{rrname}.{zone}"
-        log.debug(f"[{domain=}] ({rrname=}@{zone=}) {self.ipState.ip_v4=}")
+        log.debug(f"[{domain=}] ({rrname=}@{zone=}) {self.ipState.ip_v4=} {self.ipState.ip_v6=}")
 
         zone_id = self._get_zone_id(zone)
         if zone_id is None:
@@ -193,7 +201,7 @@ class DynDNSUpdaterHCloud:
 
         rrsets = self._zone_list_rrsets(zone_id)
         if rrsets is None:
-            log.error(f"List of resource records empty.")
+            log.error(f"List of resource records empty for zone {zone_id}.")
             return  False
 
         current_v4 = self._get_1st_value_by_rrname_rrtype(rrsets, rrname, "A")
@@ -219,8 +227,9 @@ class DynDNSUpdaterHCloud:
 
 
     def _api_call(self, api_path: str, method: str | None = None, data = None):
-        log.debug(f"Bearer {self.config.get("api_key", "none")}")
-        log.debug(f"{data=}")
+        log.debug(f"_api_call:{api_path=} [{method=}] {pretty(data)=}")
+        log.debug(f"_api_call:Bearer {self.config.get("api_key", "none")}")
+
         headers = {
                 "Authorization": f"Bearer {self.config.get("api_key", "none")}",
         }
@@ -232,17 +241,22 @@ class DynDNSUpdaterHCloud:
         )
         if req.get_method() == "POST":
             req.add_header("Content-Type", "application/json")
-        res = None
         try:
-            res = urlopen(req, timeout=__class__.TIMEOUT)
+            with urlopen(req, timeout=__class__.TIMEOUT) as res:
+                # if res.status == HTTPStatus.OK or (res.status == HTTPStatus.CREATED and req.get_method() in ("POST", "DELETE")):
+                if res.status == HTTPStatus.OK or res.status == HTTPStatus.CREATED:
+                    log.debug(f"_api_call:urlopen:{res.status=}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}")
+                    return res.read() or ""
+                else:
+                    #log.warning(f"_api_call:urlopen:{res.status=}, {pretty(res.url)=}, {pretty(str(res.headers))=}")
+                    log.warning(f"_api_call:urlopen:{res.status=}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}")
+                    return None
         except (OSError, URLError) as e:
             log.warning(f"Error reaching API endpoint \"{req.full_url}\": {e}")
             if self.raise_exceptions:
                 raise
-        if res is not None and res.status == HTTPStatus.OK:
-            return res.read() or ""
-        else:
-            return None
+        return None
+
 
     def _get_zone_id(self, main_domain: str) -> str | None:
         if (res := self._api_call("/zones")) is None:
@@ -294,6 +308,7 @@ class DynDNSUpdaterHCloud:
             log.error(f"Failed API call _rrsets_remove_record.")
             return None
         return True
+
 
     def _rrsets_remove(self, zone_id, rr_name, rr_type):
         res = self._api_call(
@@ -349,7 +364,7 @@ class DynDNSHandler(http.server.BaseHTTPRequestHandler):
 
 
     def _handle_request(self, path: str, vars: dict[str, str]) -> None:
-        print(f"{path=} {vars=}")
+        log.debug(f"_handle_request:{path=} {vars=}")
 
         ## route requests based on path
         if path == f"/{self.routeHealthcheck}":
@@ -362,10 +377,10 @@ class DynDNSHandler(http.server.BaseHTTPRequestHandler):
                 ipState = IPStateStatic(vars.get("ipv4"), vars.get("ipv6"))
             else:
                 ipState = IPStateHaz(False, False)
-            try:
-                ipState.snapshot(...)
-            except (URLError, OSError) as e:
-                log.warning(f"Unable to determine own external IP: {e}")
+                try:
+                    ipState.snapshot(...)
+                except (URLError, OSError) as e:
+                    log.warning(f"Unable to determine own external IP: {e}")
 
             if self.config.get("use_shellscript", False):
                 try:

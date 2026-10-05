@@ -1,10 +1,10 @@
 # Hetzner ® DNS Dynamic Update Service
 
-![Version: 3.0.0](https://img.shields.io/badge/version-3.0.0-blue.svg)
+![Version: 3.2.0](https://img.shields.io/badge/version-3.2.0-blue.svg)
 ![License: EUPL-1.2](https://img.shields.io/badge/license-EUPL%201.2-272398.svg?logo=europeanunion)
 
 An HTTP(S) service running on Python 3.13+ with no other dependencies apart from the Python Standard Library.
-Updates A and AAAA DNS resource records for specified subdomains (rr_names) in given zones using the Hetzner® Cloud API.
+Updates A and AAAA DNS resource records for specified subdomains (rr_names) in given zones using the [Hetzner® Cloud API](https://docs.hetzner.cloud/reference/cloud).
 
 > [!note]
 > For a ”fire and forget“ bash script to perform the same job, refer to [README-cli](./README-cli.md).
