@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 # SPDX-FileCopyrightText: Copyright (C) Oct 2026 XA. All rights reserved.
 # SPDX-License-Identifier: EUPL-1.2
-__version__ = "3.2.0"
+__version__ = "3.3.0"
 __copyright__ = "Copyright (C) by XA, X 2026. All rights reserved. Licensed under EUPL-1.2."
 
 log = logging.getLogger(__name__)
@@ -204,24 +204,38 @@ class DynDNSUpdaterHCloud:
             log.error(f"List of resource records empty for zone {zone_id}.")
             return  False
 
-        current_v4 = self._get_1st_value_by_rrname_rrtype(rrsets, rrname, "A")
-        current_v6 = self._get_1st_value_by_rrname_rrtype(rrsets, rrname, "AAAA")
-
-        if self.ipState.ip_v4 is not None and self.ipState.ip_v4 != current_v4:
-            log.info(f"[{domain}] ➡️ Setting new A record to {self.ipState.ip_v4}")
+        if self.config.get("do_ipv4_rm_all", False):
+            log.info(f"[{domain}] ➡️ Removing all A records for {zone}")
+            current_v4 = "invalid"
+            self._rrsets_remove(zone_id, rrname, "A")
+        else:
+            current_v4 = self._get_1st_value_by_rrname_rrtype(rrsets, rrname, "A")
+            log.info(f"[{domain}] ➡️ Removing previous A record {current_v4} for {zone}")
             self._rrsets_remove_record(zone_id, rrname, "A", current_v4)
-            #self._rrsets_remove(zone_id, rrname, "A")
-            self._rrsets_add_record(zone_id, rrname, "A", self.ipState.ip_v4)
-        else:
-            log.info(f"[{domain}] ✅ A record already up to date ({self.ipState.ip_v4})")
 
-        if self.ipState.ip_v6 is not None and self.ipState.ip_v6 != current_v6:
-            log.info(f"[{domain}] ➡️ Setting new AAAA record to {self.ipState.ip_v6}")
-            self._rrsets_remove_record(zone_id, rrname, "AAAA", current_v6)
-            #self._rrsets_remove(zone_id, rrname, "AAAA")
-            self._rrsets_add_record(zone_id, rrname, "AAAA", self.ipState.ip_v6)
+        if self.config.get("do_ipv4", True):
+            if self.ipState.ip_v4 is not None and self.ipState.ip_v4 != current_v4:
+                log.info(f"[{domain}] ➡️ Setting new A record to {self.ipState.ip_v4}")
+                self._rrsets_add_record(zone_id, rrname, "A", self.ipState.ip_v4)
+            else:
+                log.info(f"[{domain}] ✅ A record already up to date or undetermined ({self.ipState.ip_v4})")
+
+        if self.config.get("do_ipv6_rm_all", False):
+            log.info(f"[{domain}] ➡️ Removing all AAAA records for {zone}")
+            current_v6 = "invalid"
+            self._rrsets_remove(zone_id, rrname, "AAAA")
         else:
-            log.info(f"[{domain}] ✅ AAAA record already up to date ({self.ipState.ip_v6})")
+            current_v6 = self._get_1st_value_by_rrname_rrtype(rrsets, rrname, "AAAA")
+            log.info(f"[{domain}] ➡️ Removing previous AAAA record {current_v6} for {zone}")
+            self._rrsets_remove_record(zone_id, rrname, "AAAA", current_v6)
+
+
+        if self.config.get("do_ipv6", True):
+            if self.ipState.ip_v6 is not None and self.ipState.ip_v6 != current_v6:
+                log.info(f"[{domain}] ➡️ Setting new AAAA record to {self.ipState.ip_v6}")
+                self._rrsets_add_record(zone_id, rrname, "AAAA", self.ipState.ip_v6)
+            else:
+                log.info(f"[{domain}] ✅ AAAA record already up to date or undetermined ({self.ipState.ip_v6})")
 
         return True
 
@@ -534,6 +548,34 @@ Endpoints:
         default=[],
         help="DNS resource record sets names to change A/AAAA records of in given zone (e.g. \"@domain.tld\" for zone origin, \"www@domain.tld\" for www subdomain)",
     )
+    pg_api.add_argument(
+        "-4",
+        "--ipv4",
+        dest="do_ipv4",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help="Update IPv4 A DNS resource records [%(default)s] – use »--no-ipv4« to disable",
+    )
+    pg_api.add_argument(
+        "-6",
+        "--ipv6",
+        dest="do_ipv6",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help="Update IPv6 AAA DNS resource records [%(default)s] – use »--no-ipv6« to disable",
+    )
+    pg_api.add_argument(
+        "--rm-all-ipv4",
+        dest="do_ipv4_rm_all",
+        action="store_true",
+        help="Unconditionally remove all IPv4 A DNS resource records for all hosts prior to further action [%(default)s] ",
+    )
+    pg_api.add_argument(
+        "--rm-all-ipv6",
+        dest="do_ipv6_rm_all",
+        action="store_true",
+        help="Unconditionally remove all IPv6 AAAA DNS resource records for all hosts prior to further action [%(default)s] ",
+    )
 
     pg_server = parser.add_argument_group(title="Server")
     pg_server.add_argument("-l", "--listen", type=str, default="0.0.0.0", help="IP address to listen on [%(default)s]")
@@ -613,6 +655,10 @@ Endpoints:
         password=args.password,
         config={
             "additional_urls": args.additional,
+            "do_ipv4": args.do_ipv4,
+            "do_ipv6": args.do_ipv6,
+            "do_ipv4_rm_all": False,
+            "do_ipv6_rm_all": False,
             "api_key": args.api_key,
             "ttl": args.ttl,
             "zone": "",
