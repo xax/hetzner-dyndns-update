@@ -1,6 +1,6 @@
 # Hetzner ® DNS Dynamic Update Service
 
-![Version: 3.2.0](https://img.shields.io/badge/version-3.2.0-blue.svg)
+![Version: 3.4.0](https://img.shields.io/badge/version-3.4.0-blue.svg)
 ![License: EUPL-1.2](https://img.shields.io/badge/license-EUPL%201.2-272398.svg?logo=europeanunion)
 
 An HTTP(S) service running on Python 3.13+ with no other dependencies apart from the Python Standard Library.

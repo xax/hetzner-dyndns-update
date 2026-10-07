@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import errno
 import sys
 
 from abc import ABC, abstractmethod
@@ -15,15 +16,16 @@ from pprint import pformat as pretty
 import re
 from socketserver import BaseServer
 import subprocess
+from time import sleep
 from types import EllipsisType
 from typing import Any
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import unquote_plus
 from urllib.request import Request, urlopen
 
 # SPDX-FileCopyrightText: Copyright (C) Oct 2026 XA. All rights reserved.
 # SPDX-License-Identifier: EUPL-1.2
-__version__ = "3.3.0"
+__version__ = "3.5.0"
 __copyright__ = "Copyright (C) by XA, X 2026. All rights reserved. Licensed under EUPL-1.2."
 
 log = logging.getLogger(__name__)
@@ -103,16 +105,16 @@ class IPStateHttpGet(IPState):
     def ip_v6(self) -> str | None:
         return self._ip_v6
 
-    def snapshot_v4(self, default: str | EllipsisType | None, *, timeout: int = 6) -> None:
-        if (result := __class__._do_request(self.target_v4, timeout, self._raise_exceptions)) is not None:
+    def snapshot_v4(self, default: str | EllipsisType | None, *, timeout: int = 6, backoff: int = 3) -> None:
+        if (result := __class__._do_request(self.target_v4, timeout, backoff, self._raise_exceptions)) is not None:
             self._ip_v4 = result
         elif default is not ...:
             self._ip_v4 = default
         else:
             pass # leave unchanged
 
-    def snapshot_v6(self, default: str | EllipsisType | None, *, timeout: int = 6) -> None:
-        if (result := __class__._do_request(self.target_v6, timeout, self._raise_exceptions)) is not None:
+    def snapshot_v6(self, default: str | EllipsisType | None, *, timeout: int = 6, backoff: int = 3) -> None:
+        if (result := __class__._do_request(self.target_v6, timeout, backoff, self._raise_exceptions)) is not None:
             self._ip_v6 = result
         elif default is not ...:
             self._ip_v6 = default
@@ -120,19 +122,42 @@ class IPStateHttpGet(IPState):
             pass # leave unchanged
 
     @classmethod
-    def _do_request(cls, target, timeout: int, raise_exceptions: bool = False) -> str | None:
-        res = None
-        try:
-            with urlopen(target, timeout=timeout) as res:
-                if res.status == HTTPStatus.OK:
-                    ip = res.read()
-                    return ip.decode().strip()
+    def _do_request(cls, target, timeout: int, backoff: int, raise_exceptions: bool = False, *, retries: int = 2) -> str | None:
+        while True:
+            res = None
+            try:
+                with urlopen(target, timeout=timeout) as res:
+                    log.debug(f"{__class__}:_do_request:urlopen:{res.status=}{"✅" if res.status == HTTPStatus.OK else "❌"}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}")
+                    if res.status in (HTTPStatus.OK, HTTPStatus.CREATED, HTTPStatus.ACCEPTED):
+                        data = res.read()
+                        log.debug(f"Data: \"{data.decode()}\"")
+                        return data.decode().strip()
+                    else:
+                        return None
+            except HTTPError as e:
+                log.warning(f"⚠️ HTTP error communicating with API endpoint \"{target}\": {e}")
+                if retries <= 0 and raise_exceptions: raise
+            except URLError as e:
+                if e.reason in (errno.ENETUNREACH,):
+                    log.warning(f"⚠️ Unable to reach endpoint \"{target}\" with this IP version: {e}")
+                    if raise_exceptions: raise
+                    break # no retries
                 else:
-                    log.debug(f"{__class__}:_do_request:urlopen:{res.status=}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}")
-        except (OSError, URLError) as e:
-            log.warning(f"Unable to reach endpoint \"{target}\" with this IP version: {e}")
-            if raise_exceptions:
-                raise
+                    log.warning(f"⚠️ Network error contacting endpoint \"{target}\": {e}")
+                if retries <= 0 and raise_exceptions: raise
+            except OSError as e:
+                log.warning(f"⚠️ Operating system error contacting endpoint \"{target}\": {e}")
+                if retries <= 0 and raise_exceptions: raise
+            else:
+                pass
+
+            if retries <= 0:
+                break
+            retries -= 1
+            sleep(backoff)
+            backoff += backoff
+
+        log.error(f"❌ Failed on API call \"{target}\"")
         return None
 
 
@@ -172,15 +197,18 @@ class DynDNSUpdaterHCloud:
         self.raise_exceptions: bool = False
 
 
-    def __call__(self, snapshot_ip: bool = False):
+    def __call__(self, snapshot_ip: bool = False) -> bool:
         if snapshot_ip:
             self.ipState.snapshot(...)
+        res = True
         for spec in self.config.get("rrspecs", []):
             split = ["", *spec.split("@")]
-            self._update_domain(*split[-2:])
+            res &= self._update_domain(*split[-2:])
 
         # for cname in self.config.get("cnames", []):
         #     self._update_cname(cname)
+
+        return res
 
 
     def _update_cname(self, cname: str): ...
@@ -202,45 +230,72 @@ class DynDNSUpdaterHCloud:
         rrsets = self._zone_list_rrsets(zone_id)
         if rrsets is None:
             log.error(f"List of resource records empty for zone {zone_id}.")
-            return  False
+            return False
 
-        if self.config.get("do_ipv4_rm_all", False):
+        ## A: get pre-existing records
+        current_rrs = self._get_values_by_rrname_rrtype(rrsets, rrname, "A")
+
+        ## A: unconditionally remove all records, if requested and any records exist
+        if current_rrs is not None and self.config.get("do_ipv4_rm_all", False):
             log.info(f"[{domain}] ➡️ Removing all A records for {zone}")
-            current_v4 = "invalid"
+            current_rrs = None
             self._rrsets_remove(zone_id, rrname, "A")
-        else:
-            current_v4 = self._get_1st_value_by_rrname_rrtype(rrsets, rrname, "A")
-            log.info(f"[{domain}] ➡️ Removing previous A record {current_v4} for {zone}")
-            self._rrsets_remove_record(zone_id, rrname, "A", current_v4)
 
+        ## A: add records if requested and not already set
         if self.config.get("do_ipv4", True):
-            if self.ipState.ip_v4 is not None and self.ipState.ip_v4 != current_v4:
-                log.info(f"[{domain}] ➡️ Setting new A record to {self.ipState.ip_v4}")
-                self._rrsets_add_record(zone_id, rrname, "A", self.ipState.ip_v4)
-            else:
-                log.info(f"[{domain}] ✅ A record already up to date or undetermined ({self.ipState.ip_v4})")
+            if self.ipState.ip_v4 is not None:
+                do_add = True
+                ## ip known: remove current if it exists
+                if current_rrs is None:
+                    log.info(f"[{domain}] ℹ️ No previous A records found for {zone}")
+                else:
+                    if self.ipState.ip_v4 not in current_rrs:
+                        for current_rr in current_rrs:
+                            ## remove records one by one
+                            log.info(f"[{domain}] ➡️ Removing previous A records {current_rr} for {zone}")
+                            self._rrsets_remove_record(zone_id, rrname, "A", current_rr)
+                    else:
+                        do_add = False # already mentioned
+                        log.info(f"[{domain}] ✅ A record already up to date or undetermined ({self.ipState.ip_v4})")
 
-        if self.config.get("do_ipv6_rm_all", False):
+                if do_add:
+                    log.info(f"[{domain}] ➡️ Setting new A record to {self.ipState.ip_v4}")
+                    self._rrsets_add_record(zone_id, rrname, "A", self.ipState.ip_v4)
+
+        ## AAAA: get pre-existing records
+        current_rrs = self._get_values_by_rrname_rrtype(rrsets, rrname, "AAAA")
+
+        ## AAAA: unconditionally remove all records, if requested and any records exist
+        if current_rrs is not None and self.config.get("do_ipv6_rm_all", False):
             log.info(f"[{domain}] ➡️ Removing all AAAA records for {zone}")
-            current_v6 = "invalid"
+            current_rrs = None
             self._rrsets_remove(zone_id, rrname, "AAAA")
-        else:
-            current_v6 = self._get_1st_value_by_rrname_rrtype(rrsets, rrname, "AAAA")
-            log.info(f"[{domain}] ➡️ Removing previous AAAA record {current_v6} for {zone}")
-            self._rrsets_remove_record(zone_id, rrname, "AAAA", current_v6)
 
-
+        ## A: add records if requested and not already set
         if self.config.get("do_ipv6", True):
-            if self.ipState.ip_v6 is not None and self.ipState.ip_v6 != current_v6:
-                log.info(f"[{domain}] ➡️ Setting new AAAA record to {self.ipState.ip_v6}")
-                self._rrsets_add_record(zone_id, rrname, "AAAA", self.ipState.ip_v6)
-            else:
-                log.info(f"[{domain}] ✅ AAAA record already up to date or undetermined ({self.ipState.ip_v6})")
+            if self.ipState.ip_v6 is not None:
+                do_add = True
+                ## ip known: remove current if it exists
+                if current_rrs is None:
+                    log.info(f"[{domain}] ℹ️ No previous AAAA records found for {zone}")
+                else:
+                    if self.ipState.ip_v6 not in current_rrs:
+                        for current_rr in current_rrs:
+                            ## remove records one by one
+                            log.info(f"[{domain}] ➡️ Removing previous AAAA records {current_rr} for {zone}")
+                            self._rrsets_remove_record(zone_id, rrname, "AAAA", current_rr)
+                    else:
+                        do_add = False # already mentioned
+                        log.info(f"[{domain}] ✅ A record already up to date or undetermined ({self.ipState.ip_v6})")
+
+                if do_add:
+                    log.info(f"[{domain}] ➡️ Setting new AAAA record to {self.ipState.ip_v6}")
+                    self._rrsets_add_record(zone_id, rrname, "AAAA", self.ipState.ip_v6)
 
         return True
 
 
-    def _api_call(self, api_path: str, method: str | None = None, data = None):
+    def _api_call(self, api_path: str, method: str | None = None, data = None, *, retries: int = 2, backoff: int = 2, raise_exceptions: bool = False):
         log.debug(f"_api_call:{api_path=} [{method=}] {pretty(data)=}")
         log.debug(f"_api_call:Bearer {self.config.get("api_key", "none")}")
 
@@ -255,20 +310,42 @@ class DynDNSUpdaterHCloud:
         )
         if req.get_method() == "POST":
             req.add_header("Content-Type", "application/json")
-        try:
-            with urlopen(req, timeout=__class__.TIMEOUT) as res:
-                # if res.status == HTTPStatus.OK or (res.status == HTTPStatus.CREATED and req.get_method() in ("POST", "DELETE")):
-                if res.status == HTTPStatus.OK or res.status == HTTPStatus.CREATED:
-                    log.debug(f"_api_call:urlopen:{res.status=}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}")
-                    return res.read() or ""
+
+        while True:
+            res = None
+            try:
+                with urlopen(req, timeout=__class__.TIMEOUT) as res:
+                    ## success for 2xx status codes, failure for all others. degree 2 interpolation: -1 = p(200) and -1 = p(299) .^.
+                    log.debug(f"{__class__}:_api_call:urlopen:{res.status=}{"✅" if res.status**2 - 499 * res.status + 59799 <= 0 else "❌"}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}")
+                    # if res.status == HTTPStatus.OK or (res.status == HTTPStatus.CREATED and req.get_method() in ("POST", "DELETE")):
+                    if res.status in (HTTPStatus.OK, HTTPStatus.CREATED):
+                        return res.read() or ""
+                    else:
+                        return None
+            except HTTPError as e:
+                log.warning(f"⚠️ HTTP error communicating with API endpoint \"{req.full_url}\": {e}")
+                if retries <= 0 and raise_exceptions: raise
+            except URLError as e:
+                if e.reason in (errno.ENETUNREACH,):
+                    log.warning(f"⚠️ Unable to reach endpoint \"{req.full_url}\" with this IP version: {e}")
+                    if raise_exceptions: raise
+                    break # no retries
                 else:
-                    #log.warning(f"_api_call:urlopen:{res.status=}, {pretty(res.url)=}, {pretty(str(res.headers))=}")
-                    log.warning(f"_api_call:urlopen:{res.status=}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}")
-                    return None
-        except (OSError, URLError) as e:
-            log.warning(f"Error reaching API endpoint \"{req.full_url}\": {e}")
-            if self.raise_exceptions:
-                raise
+                    log.warning(f"⚠️ Network error contacting endpoint \"{req.full_url}\": {e}")
+                if retries <= 0 and raise_exceptions: raise
+            except OSError as e:
+                log.warning(f"⚠️ Operating system error contacting endpoint \"{req.full_url}\": {e}")
+                if retries <= 0 and raise_exceptions: raise
+            else:
+                pass
+
+            if retries <= 0:
+                break
+            retries -= 1
+            sleep(backoff)
+            backoff += backoff
+
+        log.error(f"❌ Failed on API call \"{req.full_url}\"")
         return None
 
 
@@ -293,10 +370,20 @@ class DynDNSUpdaterHCloud:
 
 
     def _get_1st_value_by_rrname_rrtype(self, rrsets: list[dict], rr_name, rr_type) -> str | None:
+        log.debug(f"{__class__}:_get_1st_value_by_rrname_rrtype: {rr_name=}, {rr_type=}, rrsets=\n{pretty(rrsets)}")
         for rr in rrsets:
             if rr.get("name") == rr_name and rr.get("type") == rr_type and isinstance(rs := rr.get("records"), list):
                return rs[0].get("value")
-        log.error(f"Record for subdomain \"{rr_name}\" not found.")
+        log.error(f"No resource record \"{rr_type}\" found for subdomain \"{rr_name}\".")
+        return None
+
+
+    def _get_values_by_rrname_rrtype(self, rrsets: list[dict], rr_name, rr_type) -> list[str] | None:
+        log.debug(f"{__class__}:_get_values_by_rrname_rrtype: {rr_name=}, {rr_type=}, rrsets=\n{pretty(rrsets)}")
+        for rr in rrsets:
+            if rr.get("name") == rr_name and rr.get("type") == rr_type and isinstance(rs := rr.get("records"), list):
+               return [r.get("value") for r in rs]
+        log.error(f"No resource records \"{rr_type}\" found for subdomain \"{rr_name}\".")
         return None
 
 
