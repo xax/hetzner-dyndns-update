@@ -25,7 +25,7 @@ from urllib.request import Request, urlopen
 
 # SPDX-FileCopyrightText: Copyright (C) Oct 2026 XA. All rights reserved.
 # SPDX-License-Identifier: EUPL-1.2
-__version__ = "3.5.0"
+__version__ = "3.5.1"
 __copyright__ = "Copyright (C) by XA, X 2026. All rights reserved. Licensed under EUPL-1.2."
 
 log = logging.getLogger(__name__)
@@ -374,7 +374,7 @@ class DynDNSUpdaterHCloud:
         for rr in rrsets:
             if rr.get("name") == rr_name and rr.get("type") == rr_type and isinstance(rs := rr.get("records"), list):
                return rs[0].get("value")
-        log.error(f"No resource record \"{rr_type}\" found for subdomain \"{rr_name}\".")
+        log.warning(f"No resource record \"{rr_type}\" found for subdomain \"{rr_name}\".")
         return None
 
 
@@ -383,7 +383,7 @@ class DynDNSUpdaterHCloud:
         for rr in rrsets:
             if rr.get("name") == rr_name and rr.get("type") == rr_type and isinstance(rs := rr.get("records"), list):
                return [r.get("value") for r in rs]
-        log.error(f"No resource records \"{rr_type}\" found for subdomain \"{rr_name}\".")
+        log.warning(f"No resource records \"{rr_type}\" found for subdomain \"{rr_name}\".")
         return None
 
 
