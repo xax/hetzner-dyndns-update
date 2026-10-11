@@ -75,10 +75,10 @@ class IPStateStatic(IPState):
         return self._ip_v6
 
     def snapshot_v4(self, default: str | EllipsisType | None, *, timeout: int = 6) -> None:
-        pass # leave unchanged
+        pass  # leave unchanged
 
     def snapshot_v6(self, default: str | EllipsisType | None, *, timeout: int = 6) -> None:
-        pass # leave unchanged
+        pass  # leave unchanged
 
 
 class IPStateHttpGet(IPState):
@@ -94,8 +94,10 @@ class IPStateHttpGet(IPState):
         self._raise_exceptions = raise_exceptions
         self._ip_v4 = None
         self._ip_v6 = None
-        if instant_ip_v4: self.snapshot_v4(None)
-        if instant_ip_v6: self.snapshot_v6(None)
+        if instant_ip_v4:
+            self.snapshot_v4(None)
+        if instant_ip_v6:
+            self.snapshot_v6(None)
 
     @property
     def ip_v4(self) -> str | None:
@@ -111,7 +113,7 @@ class IPStateHttpGet(IPState):
         elif default is not ...:
             self._ip_v4 = default
         else:
-            pass # leave unchanged
+            pass  # leave unchanged
 
     def snapshot_v6(self, default: str | EllipsisType | None, *, timeout: int = 6, backoff: int = 3) -> None:
         if (result := __class__._do_request(self.target_v6, timeout, backoff, self._raise_exceptions)) is not None:
@@ -119,35 +121,43 @@ class IPStateHttpGet(IPState):
         elif default is not ...:
             self._ip_v6 = default
         else:
-            pass # leave unchanged
+            pass  # leave unchanged
 
     @classmethod
-    def _do_request(cls, target, timeout: int, backoff: int, raise_exceptions: bool = False, *, retries: int = 2) -> str | None:
+    def _do_request(
+        cls, target, timeout: int, backoff: int, raise_exceptions: bool = False, *, retries: int = 2
+    ) -> str | None:
         while True:
             res = None
             try:
                 with urlopen(target, timeout=timeout) as res:
-                    log.debug(f"{__class__}:_do_request:urlopen:{res.status=}{"✅" if res.status == HTTPStatus.OK else "❌"}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}")
+                    log.debug(
+                        f"{__class__}:_do_request:urlopen:{res.status=}{"✅" if res.status == HTTPStatus.OK else "❌"}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}"
+                    )
                     if res.status in (HTTPStatus.OK, HTTPStatus.CREATED, HTTPStatus.ACCEPTED):
                         data = res.read()
-                        log.debug(f"Data: \"{data.decode()}\"")
+                        log.debug(f'Data: "{data.decode()}"')
                         return data.decode().strip()
                     else:
                         return None
             except HTTPError as e:
-                log.warning(f"⚠️ HTTP error communicating with API endpoint \"{target}\": {e}")
-                if retries <= 0 and raise_exceptions: raise
+                log.warning(f'⚠️ HTTP error communicating with API endpoint "{target}": {e}')
+                if retries <= 0 and raise_exceptions:
+                    raise
             except URLError as e:
                 if e.reason in (errno.ENETUNREACH,):
-                    log.warning(f"⚠️ Unable to reach endpoint \"{target}\" with this IP version: {e}")
-                    if raise_exceptions: raise
-                    break # no retries
+                    log.warning(f'⚠️ Unable to reach endpoint "{target}" with this IP version: {e}')
+                    if raise_exceptions:
+                        raise
+                    break  # no retries
                 else:
-                    log.warning(f"⚠️ Network error contacting endpoint \"{target}\": {e}")
-                if retries <= 0 and raise_exceptions: raise
+                    log.warning(f'⚠️ Network error contacting endpoint "{target}": {e}')
+                if retries <= 0 and raise_exceptions:
+                    raise
             except OSError as e:
-                log.warning(f"⚠️ Operating system error contacting endpoint \"{target}\": {e}")
-                if retries <= 0 and raise_exceptions: raise
+                log.warning(f'⚠️ Operating system error contacting endpoint "{target}": {e}')
+                if retries <= 0 and raise_exceptions:
+                    raise
             else:
                 pass
 
@@ -157,7 +167,7 @@ class IPStateHttpGet(IPState):
             sleep(backoff)
             backoff += backoff
 
-        log.error(f"❌ Failed on API call \"{target}\"")
+        log.error(f'❌ Failed on API call "{target}"')
         return None
 
 
@@ -181,10 +191,11 @@ def touch_url(url: str, ipState: IPState):
                 log.info(f'✅ Successfully touched additional url "{unquote_plus(url)}": {res.status}')
             else:
                 log.warning(f'❌ Failed touching additional url "{unquote_plus(url)}": {res.status}')
-                log.debug(f"touch_url:urlopen:{res.status=}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}")
+                log.debug(
+                    f"touch_url:urlopen:{res.status=}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}"
+                )
     except (URLError, ValueError) as e:
         log.warning(f'❌ Failed touching additional url "{unquote_plus(url)}": {e}')
-
 
 
 class DynDNSUpdaterHCloud:
@@ -195,7 +206,6 @@ class DynDNSUpdaterHCloud:
         self.ipState = ipState
         self.config = config
         self.raise_exceptions: bool = False
-
 
     def __call__(self, snapshot_ip: bool = False) -> bool:
         if snapshot_ip:
@@ -210,9 +220,7 @@ class DynDNSUpdaterHCloud:
 
         return res
 
-
     def _update_cname(self, cname: str): ...
-
 
     def _update_domain(self, rrname: str, zone: str) -> bool:
         if rrname == "" or rrname == "@":
@@ -255,7 +263,7 @@ class DynDNSUpdaterHCloud:
                             log.info(f"[{domain}] ➡️ Removing previous A records {current_rr} for {zone}")
                             self._rrsets_remove_record(zone_id, rrname, "A", current_rr)
                     else:
-                        do_add = False # already mentioned
+                        do_add = False  # already mentioned
                         log.info(f"[{domain}] ✅ A record already up to date or undetermined ({self.ipState.ip_v4})")
 
                 if do_add:
@@ -285,7 +293,7 @@ class DynDNSUpdaterHCloud:
                             log.info(f"[{domain}] ➡️ Removing previous AAAA records {current_rr} for {zone}")
                             self._rrsets_remove_record(zone_id, rrname, "AAAA", current_rr)
                     else:
-                        do_add = False # already mentioned
+                        do_add = False  # already mentioned
                         log.info(f"[{domain}] ✅ A record already up to date or undetermined ({self.ipState.ip_v6})")
 
                 if do_add:
@@ -294,13 +302,21 @@ class DynDNSUpdaterHCloud:
 
         return True
 
-
-    def _api_call(self, api_path: str, method: str | None = None, data = None, *, retries: int = 2, backoff: int = 2, raise_exceptions: bool = False):
+    def _api_call(
+        self,
+        api_path: str,
+        method: str | None = None,
+        data=None,
+        *,
+        retries: int = 2,
+        backoff: int = 2,
+        raise_exceptions: bool = False,
+    ):
         log.debug(f"_api_call:{api_path=} [{method=}] {pretty(data)=}")
         log.debug(f"_api_call:Bearer {self.config.get("api_key", "none")}")
 
         headers = {
-                "Authorization": f"Bearer {self.config.get("api_key", "none")}",
+            "Authorization": f"Bearer {self.config.get("api_key", "none")}",
         }
         req = Request(
             url=__class__.API_URL + api_path,
@@ -316,26 +332,32 @@ class DynDNSUpdaterHCloud:
             try:
                 with urlopen(req, timeout=__class__.TIMEOUT) as res:
                     ## success for 2xx status codes, failure for all others. degree 2 interpolation: -1 = p(200) and -1 = p(299) .^.
-                    log.debug(f"{__class__}:_api_call:urlopen:{res.status=}{"✅" if res.status**2 - 499 * res.status + 59799 <= 0 else "❌"}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}")
+                    log.debug(
+                        f"{__class__}:_api_call:urlopen:{res.status=}{"✅" if res.status**2 - 499 * res.status + 59799 <= 0 else "❌"}, {pretty(res.url)=}, headers={pretty({k: v for k, v in res.headers.items()})}"
+                    )
                     # if res.status == HTTPStatus.OK or (res.status == HTTPStatus.CREATED and req.get_method() in ("POST", "DELETE")):
                     if res.status in (HTTPStatus.OK, HTTPStatus.CREATED):
                         return res.read() or ""
                     else:
                         return None
             except HTTPError as e:
-                log.warning(f"⚠️ HTTP error communicating with API endpoint \"{req.full_url}\": {e}")
-                if retries <= 0 and raise_exceptions: raise
+                log.warning(f'⚠️ HTTP error communicating with API endpoint "{req.full_url}": {e}')
+                if retries <= 0 and raise_exceptions:
+                    raise
             except URLError as e:
                 if e.reason in (errno.ENETUNREACH,):
-                    log.warning(f"⚠️ Unable to reach endpoint \"{req.full_url}\" with this IP version: {e}")
-                    if raise_exceptions: raise
-                    break # no retries
+                    log.warning(f'⚠️ Unable to reach endpoint "{req.full_url}" with this IP version: {e}')
+                    if raise_exceptions:
+                        raise
+                    break  # no retries
                 else:
-                    log.warning(f"⚠️ Network error contacting endpoint \"{req.full_url}\": {e}")
-                if retries <= 0 and raise_exceptions: raise
+                    log.warning(f'⚠️ Network error contacting endpoint "{req.full_url}": {e}')
+                if retries <= 0 and raise_exceptions:
+                    raise
             except OSError as e:
-                log.warning(f"⚠️ Operating system error contacting endpoint \"{req.full_url}\": {e}")
-                if retries <= 0 and raise_exceptions: raise
+                log.warning(f'⚠️ Operating system error contacting endpoint "{req.full_url}": {e}')
+                if retries <= 0 and raise_exceptions:
+                    raise
             else:
                 pass
 
@@ -345,9 +367,8 @@ class DynDNSUpdaterHCloud:
             sleep(backoff)
             backoff += backoff
 
-        log.error(f"❌ Failed on API call \"{req.full_url}\"")
+        log.error(f'❌ Failed on API call "{req.full_url}"')
         return None
-
 
     def _get_zone_id(self, main_domain: str) -> str | None:
         if (res := self._api_call("/zones")) is None:
@@ -356,10 +377,9 @@ class DynDNSUpdaterHCloud:
         data = json.loads(res)
         for zone in data["zones"]:
             if zone.get("name") == main_domain:
-               return zone.get("id", None)
-        log.error(f"Domain \"{main_domain}\" not in zone file.")
+                return zone.get("id", None)
+        log.error(f'Domain "{main_domain}" not in zone file.')
         return None
-
 
     def _zone_list_rrsets(self, zone_id) -> list[dict] | None:
         if (res := self._api_call(f"/zones/{zone_id}/rrsets")) is None:
@@ -368,48 +388,43 @@ class DynDNSUpdaterHCloud:
         data = json.loads(res)
         return data.get("rrsets", None)
 
-
     def _get_1st_value_by_rrname_rrtype(self, rrsets: list[dict], rr_name, rr_type) -> str | None:
         log.debug(f"{__class__}:_get_1st_value_by_rrname_rrtype: {rr_name=}, {rr_type=}, rrsets=\n{pretty(rrsets)}")
         for rr in rrsets:
             if rr.get("name") == rr_name and rr.get("type") == rr_type and isinstance(rs := rr.get("records"), list):
-               return rs[0].get("value")
-        log.warning(f"No resource record \"{rr_type}\" found for subdomain \"{rr_name}\".")
+                return rs[0].get("value")
+        log.warning(f'No resource record "{rr_type}" found for subdomain "{rr_name}".')
         return None
-
 
     def _get_values_by_rrname_rrtype(self, rrsets: list[dict], rr_name, rr_type) -> list[str] | None:
         log.debug(f"{__class__}:_get_values_by_rrname_rrtype: {rr_name=}, {rr_type=}, rrsets=\n{pretty(rrsets)}")
         for rr in rrsets:
             if rr.get("name") == rr_name and rr.get("type") == rr_type and isinstance(rs := rr.get("records"), list):
-               return [r.get("value") for r in rs]
-        log.warning(f"No resource records \"{rr_type}\" found for subdomain \"{rr_name}\".")
+                return [r.get("value") for r in rs]
+        log.warning(f'No resource records "{rr_type}" found for subdomain "{rr_name}".')
         return None
-
 
     def _rrsets_add_record(self, zone_id, rr_name, rr_type, value):
         res = self._api_call(
             f"/zones/{zone_id}/rrsets/{rr_name}/{rr_type}/actions/add_records",
             "POST",
-            json.dumps({"ttl": self.config.get("ttl", 120), "records": [{"value": value}]}).encode()
+            json.dumps({"ttl": self.config.get("ttl", 120), "records": [{"value": value}]}).encode(),
         )
         if res is None:
             log.error(f"Failed API call _rrsets_add_record.")
             return None
         return True
 
-
     def _rrsets_remove_record(self, zone_id, rr_name, rr_type, value):
         res = self._api_call(
             f"/zones/{zone_id}/rrsets/{rr_name}/{rr_type}/actions/remove_records",
             "POST",
-            json.dumps({"records": [{"value": value}]}).encode()
+            json.dumps({"records": [{"value": value}]}).encode(),
         )
         if res is None:
             log.error(f"Failed API call _rrsets_remove_record.")
             return None
         return True
-
 
     def _rrsets_remove(self, zone_id, rr_name, rr_type):
         res = self._api_call(
@@ -420,7 +435,6 @@ class DynDNSUpdaterHCloud:
             log.error(f"Failed API call _rrsets_remove.")
             return None
         return True
-
 
 
 class DynDNSHandler(http.server.BaseHTTPRequestHandler):
@@ -443,7 +457,6 @@ class DynDNSHandler(http.server.BaseHTTPRequestHandler):
         self._selfpath = os.path.dirname(os.path.abspath(__file__))
         super().__init__(request, client_address, server)
 
-
     def do_GET(self) -> None:
         log.debug(self.path)
 
@@ -462,7 +475,6 @@ class DynDNSHandler(http.server.BaseHTTPRequestHandler):
         ## send 403 FORBIDDEN on any verification failure
         self.send_response(HTTPStatus.FORBIDDEN)
         self.end_headers()
-
 
     def _handle_request(self, path: str, vars: dict[str, str]) -> None:
         log.debug(f"_handle_request:{path=} {vars=}")
@@ -531,9 +543,7 @@ def run(
             password=password,
         )
     else:
-        httpd = http.server.HTTPServer(
-            server_address, functools.partial(handler_class, token=token, config=config)
-        )
+        httpd = http.server.HTTPServer(server_address, functools.partial(handler_class, token=token, config=config))
 
     try:
         httpd.serve_forever()
@@ -608,7 +618,7 @@ Endpoints:
             ‹ipv6› - new IPv6 address if known;
                      otherwise service will use an external service to try to determine address
 """,
-        epilog=f"Version {__version__}. {__copyright__}"
+        epilog=f"Version {__version__}. {__copyright__}",
     )
     pg_api = parser.add_argument_group(title="API")
     pg_api.add_argument(
@@ -633,7 +643,7 @@ Endpoints:
         nargs="*",
         action="extend",
         default=[],
-        help="DNS resource record sets names to change A/AAAA records of in given zone (e.g. \"@domain.tld\" for zone origin, \"www@domain.tld\" for www subdomain)",
+        help='DNS resource record sets names to change A/AAAA records of in given zone (e.g. "@domain.tld" for zone origin, "www@domain.tld" for www subdomain)',
     )
     pg_api.add_argument(
         "-4",
@@ -718,7 +728,7 @@ Endpoints:
         return 1
 
     if len(args.hosts) == 0:
-        log.error("At least on resource record name and a zone has to be specified (try \"-H @yourdomain.tld\").")
+        log.error('At least on resource record name and a zone has to be specified (try "-H @yourdomain.tld").')
         return 1
 
     if sys.version_info <= (3, 14) and (args.certfile is not None or args.keyfile is not None):
@@ -749,11 +759,12 @@ Endpoints:
             "api_key": args.api_key,
             "ttl": args.ttl,
             "zone": "",
-            "rrspecs": args.hosts
-        }
+            "rrspecs": args.hosts,
+        },
     )
 
     return 0
+
 
 if __name__ == "__main__":
     # logging.basicConfig(level=logging.DEBUG)
