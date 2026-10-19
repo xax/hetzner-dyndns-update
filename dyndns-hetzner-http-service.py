@@ -26,7 +26,7 @@ from urllib.request import Request, urlopen
 
 # SPDX-FileCopyrightText: Copyright (C) Oct 2026 XA. All rights reserved.
 # SPDX-License-Identifier: EUPL-1.2
-__version__ = "3.6.0"
+__version__ = "3.6.2"
 __copyright__ = "Copyright (C) by XA, X 2026. All rights reserved. Licensed under EUPL-1.2."
 
 log = logging.getLogger(__name__)
@@ -651,7 +651,7 @@ Endpoints:
                      otherwise:
                         target IPv6 interface address
             ‹ipv6pefix› - new IPv6 address prefix if given;
-                     will be combined with IPv6 interface address given via `ipv6` parameter
+                     will be combined with IPv6 interface address given via ‹ipv6› parameter
 """,
         epilog=f"Version {__version__}. {__copyright__}",
     )
@@ -751,7 +751,17 @@ Endpoints:
         default=defaultPassword,
         help="Optional password to keyfile (also from DYNDNS_HHS_PASSWORD environment variable) [%(default)s]",
     )
+    parser.add_argument(
+        "--log-level",
+        type=int,
+        default=logging.WARNING,
+        help="Minimum log level: e.g. 40=ERROR, 30=WARNING, 20=INFO, 10=DEBUG [%(default)s]",
+    )
+
     args = parser.parse_args()
+
+    ## firstly, apply log level filtering
+    logging.basicConfig(level=args.log_level)
 
     ## if requested, generate key/cert pair and exit
     if args.gen_cert is not None:
@@ -802,5 +812,4 @@ Endpoints:
 
 
 if __name__ == "__main__":
-    # logging.basicConfig(level=logging.DEBUG)
     exit(main())
