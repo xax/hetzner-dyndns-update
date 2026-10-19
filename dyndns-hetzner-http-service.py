@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import errno
+from ipaddress import IPv6Address, IPv6Network
+import struct
 import sys
 
 from abc import ABC, abstractmethod
@@ -18,14 +20,14 @@ from socketserver import BaseServer
 import subprocess
 from time import sleep
 from types import EllipsisType
-from typing import Any
+from typing import Any, overload
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote_plus
 from urllib.request import Request, urlopen
 
 # SPDX-FileCopyrightText: Copyright (C) Oct 2026 XA. All rights reserved.
 # SPDX-License-Identifier: EUPL-1.2
-__version__ = "3.5.1"
+__version__ = "3.6.0"
 __copyright__ = "Copyright (C) by XA, X 2026. All rights reserved. Licensed under EUPL-1.2."
 
 log = logging.getLogger(__name__)
@@ -62,9 +64,22 @@ class IPState(ABC):
 
 class IPStateStatic(IPState):
 
+    @overload
+    def __init__(self, /, ip_v4: str | None, ip_v6_prefix: str | None, ipv6_interface_id: str | None, **kwargs):
+        ...
+
+    @overload
     def __init__(self, /, ip_v4: str | None, ip_v6: str | None, **kwargs):
-        self._ip_v4 = ip_v4
-        self._ip_v6 = ip_v6
+        ...
+
+    def __init__(self, *args, **kwargs):
+        self._ip_v4 = args[0]
+        if len(args) > 2:
+            self._ip_v6 = str(self._ipv6_addr_from_net_plus_iface(args[1], args[2]))
+            log.debug(f"IPv6net: net={args[1]}; IPv6Interface = {args[2]}; IPv6Address: {self._ip_v6}")
+
+        elif len(args) > 1:
+            self._ip_v6 = args[1]
 
     @property
     def ip_v4(self) -> str | None:
@@ -80,6 +95,21 @@ class IPStateStatic(IPState):
     def snapshot_v6(self, default: str | EllipsisType | None, *, timeout: int = 6) -> None:
         pass  # leave unchanged
 
+    @staticmethod
+    def _ipv6_addr_from_net_plus_iface (net: str, iface: str) -> IPv6Address:
+        ipnet = IPv6Network(net)
+        ipnet_hi, ipnet_lo = struct.unpack("!2Q", ipnet.network_address.packed)
+        ipnet_val = ipnet_hi<<64 | ipnet_lo
+
+        ipnet_mask = ~( 2**(128 - ipnet.prefixlen) - 1 )
+
+        ipif = IPv6Address(iface)
+        ipif_hi, ipif_lo = struct.unpack("!2Q", ipif.packed)
+        ipif_val = ipif_hi<<64 | ipif_lo
+
+        ip = (ipnet_val & ipnet_mask) | (ipif_val & ipif_val)
+        log.debug(f"IPStateStatic:_ipv6_addr_from_net_plus_iface: {ipnet_val=:x} | {ipif_val=:x} => {ip=:x}")
+        return IPv6Address(ip)
 
 class IPStateHttpGet(IPState):
     target_v4: str = ""
@@ -486,7 +516,9 @@ class DynDNSHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
         elif path == f"/{self.routeUpdate}":
             ## process DNS update request
-            if "ipv4" in vars or "ipv6" in vars:
+            if "ipv6prefix" in vars and "ipv6" in vars:
+                ipState = IPStateStatic(vars.get("ipv4"), vars.get("ipv6prefix"), vars.get("ipv6"))
+            elif "ipv4" in vars or "ipv6" in vars:
                 ipState = IPStateStatic(vars.get("ipv4"), vars.get("ipv6"))
             else:
                 ipState = IPStateHaz(False, False)
@@ -603,20 +635,25 @@ def main():
 
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="""\
+        description=f"""\
 Enrolls a server listening for HTTP-GET requests, upon which it uses the Hetzner-Cloud-API
 to update DNS A/AAAA records for given entries.
 
 Endpoints:
     /hc
         Healthcheck: expect an HTTP 200 OK reply if service running
-    /update?token=‹authtoken›[&ipv4=‹ipv4›][&ipv6=‹ipv6›]
+    /update?token=‹authtoken›[&ipv4=‹ipv4›][&ipv6=‹ipv6›][&ipv6prefix=‹ipv6prefix›]
         Update DNS records for entries specified on service's start.
             ‹authtoken› - authentification token as given on service's launch
             ‹ipv4› - new IPv4 address if known;
                      otherwise service will use an external service to try to determine address
-            ‹ipv6› - new IPv6 address if known;
-                     otherwise service will use an external service to try to determine address
+            ‹ipv6› - if no IPv6 prefix given:
+                        new IPv6 address if known;
+                        otherwise service will use an external service to try to determine address
+                     otherwise:
+                        target IPv6 interface address
+            ‹ipv6pefix› - new IPv6 address prefix if given;
+                     will be combined with IPv6 interface address given via `ipv6` parameter
 """,
         epilog=f"Version {__version__}. {__copyright__}",
     )
