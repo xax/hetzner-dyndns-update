@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 
-import errno
-from ipaddress import IPv6Address, IPv6Network
-import struct
-import sys
-
 from abc import ABC, abstractmethod
 import argparse
+import errno
 import functools
 from http import HTTPStatus
 import http.server
+from ipaddress import IPv6Address, IPv6Network
 import json
 import logging
 import os
@@ -17,7 +14,9 @@ from pathlib import Path
 from pprint import pformat as pretty
 import re
 from socketserver import BaseServer
+import struct
 import subprocess
+import sys
 from time import sleep
 from types import EllipsisType
 from typing import Any, overload
@@ -65,12 +64,10 @@ class IPState(ABC):
 class IPStateStatic(IPState):
 
     @overload
-    def __init__(self, /, ip_v4: str | None, ip_v6_prefix: str | None, ipv6_interface_id: str | None, **kwargs):
-        ...
+    def __init__(self, /, ip_v4: str | None, ip_v6_prefix: str | None, ipv6_interface_id: str | None, **kwargs): ...
 
     @overload
-    def __init__(self, /, ip_v4: str | None, ip_v6: str | None, **kwargs):
-        ...
+    def __init__(self, /, ip_v4: str | None, ip_v6: str | None, **kwargs): ...
 
     def __init__(self, *args, **kwargs):
         self._ip_v4 = args[0]
@@ -96,20 +93,21 @@ class IPStateStatic(IPState):
         pass  # leave unchanged
 
     @staticmethod
-    def _ipv6_addr_from_net_plus_iface (net: str, iface: str) -> IPv6Address:
+    def _ipv6_addr_from_net_plus_iface(net: str, iface: str) -> IPv6Address:
         ipnet = IPv6Network(net)
         ipnet_hi, ipnet_lo = struct.unpack("!2Q", ipnet.network_address.packed)
-        ipnet_val = ipnet_hi<<64 | ipnet_lo
+        ipnet_val = ipnet_hi << 64 | ipnet_lo
 
-        ipnet_mask = ~( 2**(128 - ipnet.prefixlen) - 1 )
+        ipnet_mask = ~(2 ** (128 - ipnet.prefixlen) - 1)
 
         ipif = IPv6Address(iface)
         ipif_hi, ipif_lo = struct.unpack("!2Q", ipif.packed)
-        ipif_val = ipif_hi<<64 | ipif_lo
+        ipif_val = ipif_hi << 64 | ipif_lo
 
         ip = (ipnet_val & ipnet_mask) | (ipif_val & ipif_val)
         log.debug(f"IPStateStatic:_ipv6_addr_from_net_plus_iface: {ipnet_val=:x} | {ipif_val=:x} => {ip=:x}")
         return IPv6Address(ip)
+
 
 class IPStateHttpGet(IPState):
     target_v4: str = ""
