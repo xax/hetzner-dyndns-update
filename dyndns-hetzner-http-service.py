@@ -64,17 +64,16 @@ class IPState(ABC):
 class IPStateStatic(IPState):
 
     @overload
-    def __init__(self, /, ip_v4: str | None, ip_v6_prefix: str | None, ipv6_interface_id: str | None, **kwargs): ...
+    def __init__(self, ip_v4: str | None, ip_v6_prefix: str | None, ip_v6_interface_id: str | None, /, **kwargs): ...
 
     @overload
-    def __init__(self, /, ip_v4: str | None, ip_v6: str | None, **kwargs): ...
+    def __init__(self, ip_v4: str | None, ip_v6: str | None, /, **kwargs): ...
 
     def __init__(self, *args, **kwargs):
         self._ip_v4 = args[0]
         if len(args) > 2:
             self._ip_v6 = str(self._ipv6_addr_from_net_plus_iface(args[1], args[2]))
             log.debug(f"IPv6net: net={args[1]}; IPv6Interface = {args[2]}; IPv6Address: {self._ip_v6}")
-
         elif len(args) > 1:
             self._ip_v6 = args[1]
 
